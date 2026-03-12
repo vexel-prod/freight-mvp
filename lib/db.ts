@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isTelegramConfigured } from "@/lib/env";
 import {
   buildNotificationMessage,
   buildTruckMatches,
@@ -7,6 +8,7 @@ import {
   demoTrucks,
   summarizeAnalytics,
 } from "@/lib/freight";
+import { fetchAtiOffers, sendTelegramMessage } from "@/lib/integrations";
 
 export async function ensureDemoData() {
   const [truckCount, offerCount, settings] = await Promise.all([
@@ -67,8 +69,14 @@ export async function resetDemoData() {
 }
 
 export async function resyncAtiDemo() {
+  const result = await fetchAtiOffers();
   await prisma.cargoOffer.deleteMany();
-  await prisma.cargoOffer.createMany({ data: demoOffers });
+
+  if (result.offers.length > 0) {
+    await prisma.cargoOffer.createMany({ data: result.offers });
+  }
+
+  return result;
 }
 
 export async function updateSettings(input: {
@@ -97,16 +105,25 @@ export async function queueTelegramDigest() {
   const created = [];
 
   for (const truck of data.trucks.filter((item) => item.matches.length > 0)) {
+    const message = buildNotificationMessage(truck);
+    const delivery = await sendTelegramMessage(message);
+
     created.push(
       prisma.notification.create({
         data: {
           channel: "telegram",
           title: `Подбор для ${truck.code}`,
-          message: buildNotificationMessage(truck),
+          message,
+          status: delivery.sent ? "SENT" : "PENDING",
         },
       }),
     );
   }
 
   await Promise.all(created);
+
+  return {
+    notificationsCreated: created.length,
+    telegramConfigured: isTelegramConfigured(),
+  };
 }
