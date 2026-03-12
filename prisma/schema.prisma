@@ -29,6 +29,17 @@ enum AuditLevel {
   ERROR
 }
 
+enum DispatchStatus {
+  NEW
+  REVIEW
+  NEGOTIATION
+  APPROVED
+  DECLINED
+  BOOKED
+  IN_PROGRESS
+  COMPLETED
+}
+
 model Truck {
   id            String      @id @default(cuid())
   createdAt     DateTime    @default(now())
@@ -41,6 +52,7 @@ model Truck {
   status        TruckStatus @default(FREE)
   driverName    String?
   note          String?
+  decisions     DispatchDecision[]
 }
 
 model CargoOffer {
@@ -59,6 +71,7 @@ model CargoOffer {
   extraEmptyRunKm  Float    @default(0)
   fuelSurchargeRub Float    @default(0)
   comment          String?
+  decisions        DispatchDecision[]
 }
 
 model Settings {
@@ -87,6 +100,24 @@ model Notification {
   status    NotificationStatus @default(PENDING)
   title     String
   message   String
+}
+
+model DispatchDecision {
+  id              String         @id @default(cuid())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  truckId         String
+  cargoOfferId    String
+  status          DispatchStatus @default(NEW)
+  logisticName    String?
+  chosenRateRub   Float?
+  comment         String?
+  truck           Truck          @relation(fields: [truckId], references: [id], onDelete: Cascade)
+  cargoOffer      CargoOffer     @relation(fields: [cargoOfferId], references: [id], onDelete: Cascade)
+
+  @@unique([truckId, cargoOfferId])
+  @@index([truckId, status])
+  @@index([cargoOfferId, status])
 }
 
 model AuditEvent {

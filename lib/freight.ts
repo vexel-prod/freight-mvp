@@ -1,4 +1,4 @@
-import type { CargoOffer, Notification, RecommendationKind, Settings, Truck } from "@prisma/client";
+import type { CargoOffer, DispatchDecision, Notification, RecommendationKind, Settings, Truck } from "@prisma/client";
 
 export type MatchEconomics = {
   totalDistanceKm: number;
@@ -20,6 +20,7 @@ export type TruckWithMatches = Truck & {
   matches: Array<{
     offer: CargoOffer;
     economics: MatchEconomics;
+    decision?: DispatchDecision | null;
   }>;
 };
 
@@ -133,6 +134,8 @@ export function summarizeAnalytics(trucks: TruckWithMatches[], notifications: No
   const take = allMatches.filter((item) => item.economics.recommendation === "TAKE");
   const negotiate = allMatches.filter((item) => item.economics.recommendation === "NEGOTIATE");
   const decline = allMatches.filter((item) => item.economics.recommendation === "DECLINE");
+  const approved = allMatches.filter((item) => item.decision?.status === "APPROVED" || item.decision?.status === "BOOKED" || item.decision?.status === "IN_PROGRESS");
+  const inNegotiation = allMatches.filter((item) => item.decision?.status === "NEGOTIATION");
   const bestMargin = allMatches.reduce((best, item) => Math.max(best, item.economics.marginRub), 0);
 
   return {
@@ -142,6 +145,8 @@ export function summarizeAnalytics(trucks: TruckWithMatches[], notifications: No
     takeCount: take.length,
     negotiateCount: negotiate.length,
     declineCount: decline.length,
+    approvedCount: approved.length,
+    negotiationCount: inNegotiation.length,
     avgScore: allMatches.length
       ? Math.round(allMatches.reduce((sum, item) => sum + item.economics.score, 0) / allMatches.length)
       : 0,

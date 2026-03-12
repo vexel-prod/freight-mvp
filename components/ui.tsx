@@ -70,6 +70,32 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={clsx(
+        "w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900",
+        "outline-none ring-0 transition focus:border-copper",
+        props.className,
+      )}
+    />
+  );
+}
+
+export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={clsx(
+        "w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900",
+        "outline-none ring-0 transition focus:border-copper",
+        props.className,
+      )}
+    />
+  );
+}
+
 export function Label(props: React.PropsWithChildren<{ className?: string }>) {
   return <label className={clsx("mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500", props.className)}>{props.children}</label>;
 }

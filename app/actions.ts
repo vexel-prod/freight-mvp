@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { queueTelegramDigest, resetDemoData, resyncAtiDemo, updateSettings } from "@/lib/db";
+import { queueTelegramDigest, resetDemoData, resyncAtiDemo, saveDispatchDecision, updateSettings } from "@/lib/db";
 
 function readNumber(formData: FormData, field: string) {
   const raw = String(formData.get(field) ?? "").trim().replace(",", ".");
@@ -43,6 +43,21 @@ export async function saveSettingsAction(formData: FormData) {
     minTakeRubPerKm: readNumber(formData, "minTakeRubPerKm"),
     minNegotiateRubPerKm: readNumber(formData, "minNegotiateRubPerKm"),
     telegramChatId: readString(formData, "telegramChatId"),
+  });
+
+  revalidatePath("/");
+}
+
+export async function saveDispatchDecisionAction(formData: FormData) {
+  const chosenRateRaw = readString(formData, "chosenRateRub");
+
+  await saveDispatchDecision({
+    truckId: readString(formData, "truckId"),
+    cargoOfferId: readString(formData, "cargoOfferId"),
+    status: readString(formData, "status") as "NEW" | "REVIEW" | "NEGOTIATION" | "APPROVED" | "DECLINED" | "BOOKED" | "IN_PROGRESS" | "COMPLETED",
+    logisticName: readString(formData, "logisticName"),
+    comment: readString(formData, "comment"),
+    chosenRateRub: chosenRateRaw ? readNumber(formData, "chosenRateRub") : null,
   });
 
   revalidatePath("/");

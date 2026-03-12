@@ -52,15 +52,26 @@ export async function ensureDemoData() {
 export async function getDashboardData() {
   await ensureDemoData();
 
-  const [trucks, offers, settings, notifications] = await Promise.all([
+  const [trucks, offers, settings, notifications, decisions] = await Promise.all([
     prisma.truck.findMany({ orderBy: [{ status: "asc" }, { city: "asc" }] }),
     prisma.cargoOffer.findMany({ orderBy: [{ loadDate: "asc" }, { rateRub: "desc" }] }),
     prisma.settings.findUniqueOrThrow({ where: { id: "main" } }),
     prisma.notification.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
+    prisma.dispatchDecision.findMany({ orderBy: { updatedAt: "desc" } }),
   ]);
   const auditEvents = await prisma.auditEvent.findMany({ orderBy: { createdAt: "desc" }, take: 8 });
 
-  const trucksWithMatches = buildTruckMatches(trucks, offers, settings);
+  const decisionsByPair = new Map(
+    decisions.map((decision) => [`${decision.truckId}:${decision.cargoOfferId}`, decision]),
+  );
+
+  const trucksWithMatches = buildTruckMatches(trucks, offers, settings).map((truck) => ({
+    ...truck,
+    matches: truck.matches.map((match) => ({
+      ...match,
+      decision: decisionsByPair.get(`${truck.id}:${match.offer.id}`) ?? null,
+    })),
+  }));
   const analytics = summarizeAnalytics(trucksWithMatches, notifications);
 
   return {
@@ -69,6 +80,7 @@ export async function getDashboardData() {
     trucks: trucksWithMatches,
     notifications,
     auditEvents,
+    decisions,
     sourceMode: getCargoSourceMode(),
     analytics,
     topOffers: trucksWithMatches.flatMap((truck) =>
@@ -203,4 +215,58 @@ export async function queueTelegramDigest() {
     notificationsCreated: created.length,
     telegramConfigured: isTelegramConfigured(),
   };
+}
+
+export async function saveDispatchDecision(input: {
+  truckId: string;
+  cargoOfferId: string;
+  status: "NEW" | "REVIEW" | "NEGOTIATION" | "APPROVED" | "DECLINED" | "BOOKED" | "IN_PROGRESS" | "COMPLETED";
+  logisticName: string;
+  comment: string;
+  chosenRateRub: number | null;
+}) {
+  const truck = await prisma.truck.findUnique({ where: { id: input.truckId } });
+  const cargoOffer = await prisma.cargoOffer.findUnique({ where: { id: input.cargoOfferId } });
+
+  if (!truck || !cargoOffer) {
+    throw new Error("Truck or cargo offer not found");
+  }
+
+  const decision = await prisma.dispatchDecision.upsert({
+    where: {
+      truckId_cargoOfferId: {
+        truckId: input.truckId,
+        cargoOfferId: input.cargoOfferId,
+      },
+    },
+    update: {
+      status: input.status,
+      logisticName: input.logisticName || null,
+      comment: input.comment || null,
+      chosenRateRub: input.chosenRateRub,
+    },
+    create: {
+      truckId: input.truckId,
+      cargoOfferId: input.cargoOfferId,
+      status: input.status,
+      logisticName: input.logisticName || null,
+      comment: input.comment || null,
+      chosenRateRub: input.chosenRateRub,
+    },
+  });
+
+  await createAuditEvent({
+    action: "save_dispatch_decision",
+    source: "panel",
+    message: `Decision ${input.status} saved for ${truck.code} / ${cargoOffer.atiId}`,
+    payload: {
+      truckId: input.truckId,
+      cargoOfferId: input.cargoOfferId,
+      status: input.status,
+      logisticName: input.logisticName,
+      chosenRateRub: input.chosenRateRub,
+    },
+  });
+
+  return decision;
 }

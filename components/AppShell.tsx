@@ -1,8 +1,8 @@
-import type { NotificationStatus, RecommendationKind } from "@prisma/client";
-import { resetDemoAction, saveSettingsAction, sendTelegramDigestAction, syncAtiAction } from "@/app/actions";
+import type { DispatchStatus, NotificationStatus, RecommendationKind } from "@prisma/client";
+import { resetDemoAction, saveDispatchDecisionAction, saveSettingsAction, sendTelegramDigestAction, syncAtiAction } from "@/app/actions";
 import type { getDashboardData } from "@/lib/db";
 import { formatDate, formatMoney, formatNumber } from "@/lib/freight";
-import { Badge, Button, Input, Label, Panel, PanelBody, PanelHeader, Table, Td, Th } from "@/components/ui";
+import { Badge, Button, Input, Label, Panel, PanelBody, PanelHeader, Select, Table, Td, Textarea, Th } from "@/components/ui";
 
 type AppData = Awaited<ReturnType<typeof getDashboardData>>;
 
@@ -27,7 +27,7 @@ export function AppShell({ data }: { data: AppData }) {
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <form action={syncAtiAction}>
-                <Button type="submit" variant="secondary">Обновить ATI демо</Button>
+                <Button type="submit" variant="secondary">Синхронизировать грузы</Button>
               </form>
               <form action={sendTelegramDigestAction}>
                 <Button type="submit" variant="ghost" className="border-white/20 bg-white/5 text-sand hover:bg-white/10">Сформировать Telegram</Button>
@@ -99,8 +99,47 @@ export function AppShell({ data }: { data: AppData }) {
                         <div className="flex flex-col items-start gap-2">
                           <RecommendationBadge kind={item.economics.recommendation} />
                           <Badge tone="neutral">Рейтинг {item.economics.score}</Badge>
+                          {item.decision ? <DecisionBadge status={item.decision.status} /> : null}
                           <div className="text-xs text-slate-500">
                             Топливо {formatMoney(item.economics.fuelRub)} · Платон {formatMoney(item.economics.platonRub)}
+                          </div>
+                        </div>
+                        <div className="md:col-span-3">
+                          <div className="mt-1 rounded-[20px] border border-slate-200 bg-slate-50 p-4">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-ink">Оформление рейса</div>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge tone="neutral">{item.decision?.logisticName ? `Логист: ${item.decision.logisticName}` : "Решение не оформлено"}</Badge>
+                                {item.decision?.chosenRateRub ? <Badge tone="neutral">Ставка {formatMoney(item.decision.chosenRateRub)}</Badge> : null}
+                              </div>
+                            </div>
+                            <form action={saveDispatchDecisionAction} className="grid gap-3 md:grid-cols-4">
+                              <input type="hidden" name="truckId" value={truck.id} />
+                              <input type="hidden" name="cargoOfferId" value={item.offer.id} />
+                              <div>
+                                <Label>Статус</Label>
+                                <Select name="status" defaultValue={item.decision?.status ?? suggestedStatus(item.economics.recommendation)}>
+                                  {dispatchStatuses.map((status) => (
+                                    <option key={status.value} value={status.value}>{status.label}</option>
+                                  ))}
+                                </Select>
+                              </div>
+                              <div>
+                                <Label>Логист</Label>
+                                <Input name="logisticName" defaultValue={item.decision?.logisticName ?? ""} placeholder="Кто ведёт рейс" />
+                              </div>
+                              <div>
+                                <Label>Согласованная ставка, ₽</Label>
+                                <Input name="chosenRateRub" defaultValue={item.decision?.chosenRateRub ? String(item.decision.chosenRateRub) : String(item.offer.rateRub)} inputMode="decimal" />
+                              </div>
+                              <div className="flex items-end">
+                                <Button type="submit" variant="secondary" className="w-full">Сохранить решение</Button>
+                              </div>
+                              <div className="md:col-span-4">
+                                <Label>Комментарий</Label>
+                                <Textarea name="comment" defaultValue={item.decision?.comment ?? ""} rows={3} placeholder="Контакт, договорённости, примечания по оформлению" />
+                              </div>
+                            </form>
                           </div>
                         </div>
                       </div>
@@ -215,6 +254,8 @@ export function AppShell({ data }: { data: AppData }) {
                 <MiniStat label="Торговаться" value={String(data.analytics.negotiateCount)} />
                 <MiniStat label="Не брать" value={String(data.analytics.declineCount)} />
                 <MiniStat label="Telegram pending" value={String(data.analytics.pendingNotifications)} />
+                <MiniStat label="Оформлено" value={String(data.analytics.approvedCount)} />
+                <MiniStat label="В переговорах" value={String(data.analytics.negotiationCount)} />
               </div>
 
               <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
@@ -299,6 +340,12 @@ function RecommendationBadge(props: { kind: RecommendationKind }) {
   return <Badge tone="bad">Не брать</Badge>;
 }
 
+function DecisionBadge(props: { status: DispatchStatus }) {
+  const found = dispatchStatuses.find((item) => item.value === props.status);
+  const tone = props.status === "DECLINED" ? "bad" : props.status === "NEGOTIATION" || props.status === "REVIEW" ? "warn" : "good";
+  return <Badge tone={tone}>{found?.label ?? props.status}</Badge>;
+}
+
 function StatusBadge(props: { status: string }) {
   if (props.status === "FREE") return <Badge tone="good">Свободна</Badge>;
   if (props.status === "ON_ROUTE") return <Badge tone="warn">В рейсе</Badge>;
@@ -308,3 +355,20 @@ function StatusBadge(props: { status: string }) {
 function NotificationBadge(props: { status: NotificationStatus }) {
   return props.status === "SENT" ? <Badge tone="good">sent</Badge> : <Badge tone="warn">pending</Badge>;
 }
+
+function suggestedStatus(kind: RecommendationKind): DispatchStatus {
+  if (kind === "TAKE") return "APPROVED";
+  if (kind === "NEGOTIATE") return "NEGOTIATION";
+  return "DECLINED";
+}
+
+const dispatchStatuses: Array<{ value: DispatchStatus; label: string }> = [
+  { value: "NEW", label: "Новый" },
+  { value: "REVIEW", label: "На проверке" },
+  { value: "NEGOTIATION", label: "Торг" },
+  { value: "APPROVED", label: "Согласован" },
+  { value: "DECLINED", label: "Отказ" },
+  { value: "BOOKED", label: "Забронирован" },
+  { value: "IN_PROGRESS", label: "В работе" },
+  { value: "COMPLETED", label: "Завершён" },
+];
