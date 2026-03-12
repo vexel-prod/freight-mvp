@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum TruckStatus {
+  FREE
+  ON_ROUTE
+  SERVICE
+}
+
+enum RecommendationKind {
+  TAKE
+  NEGOTIATE
+  DECLINE
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+}
+
+model Truck {
+  id            String      @id @default(cuid())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  code          String      @unique
+  city          String
+  availableFrom DateTime
+  bodyType      String
+  capacityTons  Float
+  status        TruckStatus @default(FREE)
+  driverName    String?
+  note          String?
+}
+
+model CargoOffer {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  atiId            String   @unique
+  sourceSystem     String   @default("ATI.SU")
+  sourceCity       String
+  destinationCity  String
+  loadDate         DateTime
+  bodyType         String
+  weightTons       Float
+  rateRub          Float
+  distanceKm       Float
+  extraEmptyRunKm  Float    @default(0)
+  fuelSurchargeRub Float    @default(0)
+  comment          String?
+}
+
+model Settings {
+  id                       String   @id
+  companyName              String
+  fuelPriceRub             Float
+  fuelConsumptionLiters    Float
+  platonRubPerKm           Float
+  driverRubPerKm           Float
+  variableRubPerKm         Float
+  fixedTripCostsRub        Float
+  targetMarginRub          Float
+  negotiateMarginRub       Float
+  takeScoreThreshold       Float
+  negotiateScoreThreshold  Float
+  minTakeRubPerKm          Float
+  minNegotiateRubPerKm     Float
+  telegramChatId           String?
+  updatedAt                DateTime @updatedAt
+}
+
+model Notification {
+  id        String             @id @default(cuid())
+  createdAt DateTime           @default(now())
+  channel   String
+  status    NotificationStatus @default(PENDING)
+  title     String
+  message   String
+}
