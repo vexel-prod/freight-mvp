@@ -1,5 +1,7 @@
-import { appEnv, isAtiConfigured, isTelegramConfigured } from "@/lib/env";
+import { appEnv, getCargoSourceMode, isAtiConfigured, isTelegramConfigured } from "@/lib/env";
 import { demoOffers } from "@/lib/freight";
+import { log } from "@/lib/logger";
+import { fetchJsonWithRetry } from "@/lib/net";
 
 type AtiOfferPayload = {
   atiId?: string | number;
@@ -16,14 +18,16 @@ type AtiOfferPayload = {
 };
 
 export async function fetchAtiOffers() {
-  if (!isAtiConfigured()) {
+  const mode = getCargoSourceMode();
+
+  if (mode === "demo" || !isAtiConfigured()) {
     return {
       source: "demo" as const,
       offers: demoOffers,
     };
   }
 
-  const response = await fetch(appEnv.atiApiUrl!, {
+  const payload = await fetchJsonWithRetry<unknown>(appEnv.atiApiUrl!, {
     method: "GET",
     headers: {
       Accept: "application/json",
@@ -31,19 +35,20 @@ export async function fetchAtiOffers() {
       ...(appEnv.atiApiKey ? { "X-API-Key": appEnv.atiApiKey } : {}),
     },
     cache: "no-store",
+    timeoutMs: appEnv.atiRequestTimeoutMs,
+    retries: appEnv.atiMaxRetries,
   });
 
-  if (!response.ok) {
-    throw new Error(`ATI request failed with status ${response.status}`);
-  }
+  const payloadRecord = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+  const payloadItems = payloadRecord?.items;
+  const payloadData = payloadRecord?.data;
 
-  const payload = await response.json();
   const items = Array.isArray(payload)
     ? payload
-    : Array.isArray(payload?.items)
-      ? payload.items
-      : Array.isArray(payload?.data)
-        ? payload.data
+    : Array.isArray(payloadItems)
+      ? payloadItems
+      : Array.isArray(payloadData)
+        ? payloadData
         : [];
 
   const offers = items
@@ -64,7 +69,7 @@ export async function sendTelegramMessage(text: string) {
     };
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${appEnv.telegramBotToken}/sendMessage`, {
+  await fetchJsonWithRetry(`https://api.telegram.org/bot${appEnv.telegramBotToken}/sendMessage`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -73,16 +78,29 @@ export async function sendTelegramMessage(text: string) {
       chat_id: appEnv.telegramChatId,
       text,
     }),
+    timeoutMs: appEnv.telegramRequestTimeoutMs,
+    retries: 1,
   });
-
-  if (!response.ok) {
-    throw new Error(`Telegram request failed with status ${response.status}`);
-  }
 
   return {
     sent: true,
     reason: null,
   };
+}
+
+export function normalizeManualOffers(input: unknown) {
+  const items = Array.isArray(input)
+    ? input
+    : Array.isArray((input as { offers?: unknown[] })?.offers)
+      ? (input as { offers: unknown[] }).offers
+      : [];
+
+  const offers = items
+    .map((item, index) => normalizeAtiOffer(item as AtiOfferPayload, index))
+    .filter((item: ReturnType<typeof normalizeAtiOffer>): item is NonNullable<ReturnType<typeof normalizeAtiOffer>> => Boolean(item));
+
+  log("info", "Manual offers normalized", { count: offers.length });
+  return offers;
 }
 
 function normalizeAtiOffer(raw: AtiOfferPayload, index: number) {

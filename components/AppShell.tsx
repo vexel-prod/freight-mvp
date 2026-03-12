@@ -21,6 +21,10 @@ export function AppShell({ data }: { data: AppData }) {
               MVP объединяет ATI.SU, базу свободных машин, расчёт экономики рейса, рейтинг ставок
               и очередь Telegram-уведомлений в одной веб-панели.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge tone="neutral">Источник грузов: {data.sourceMode}</Badge>
+              <Badge tone={data.auditEvents.length > 0 ? "good" : "warn"}>Audit: {data.auditEvents.length} событий</Badge>
+            </div>
             <div className="mt-6 flex flex-wrap gap-3">
               <form action={syncAtiAction}>
                 <Button type="submit" variant="secondary">Обновить ATI демо</Button>
@@ -226,6 +230,28 @@ export function AppShell({ data }: { data: AppData }) {
                           <NotificationBadge status={notification.status} />
                         </div>
                         <div className="mt-2 whitespace-pre-line text-xs leading-5 text-slate-600">{notification.message}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4">
+                <div className="text-sm font-semibold text-ink">Аудит операций</div>
+                <div className="mt-3 space-y-3">
+                  {data.auditEvents.length === 0 ? (
+                    <div className="text-sm text-slate-500">События пока не записаны.</div>
+                  ) : (
+                    data.auditEvents.map((event) => (
+                      <div key={event.id} className="rounded-[20px] border border-white bg-white p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm font-semibold text-ink">{event.action}</div>
+                          <Badge tone={event.level === "ERROR" ? "bad" : event.level === "WARN" ? "warn" : "good"}>
+                            {event.level.toLowerCase()}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">{event.source} · {formatDate(event.createdAt)}</div>
+                        <div className="mt-2 text-xs leading-5 text-slate-600">{event.message}</div>
                       </div>
                     ))
                   )}

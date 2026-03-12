@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { isTelegramConfigured } from "@/lib/env";
+import { getCargoSourceMode, isTelegramConfigured } from "@/lib/env";
 import {
   buildNotificationMessage,
   buildTruckMatches,
@@ -8,7 +8,26 @@ import {
   demoTrucks,
   summarizeAnalytics,
 } from "@/lib/freight";
-import { fetchAtiOffers, sendTelegramMessage } from "@/lib/integrations";
+import { fetchAtiOffers, normalizeManualOffers, sendTelegramMessage } from "@/lib/integrations";
+import { log } from "@/lib/logger";
+
+async function createAuditEvent(input: {
+  level?: "INFO" | "WARN" | "ERROR";
+  action: string;
+  source: string;
+  message: string;
+  payload?: Record<string, unknown>;
+}) {
+  await prisma.auditEvent.create({
+    data: {
+      level: input.level ?? "INFO",
+      action: input.action,
+      source: input.source,
+      message: input.message,
+      payloadJson: input.payload ? JSON.stringify(input.payload) : null,
+    },
+  });
+}
 
 export async function ensureDemoData() {
   const [truckCount, offerCount, settings] = await Promise.all([
@@ -39,6 +58,7 @@ export async function getDashboardData() {
     prisma.settings.findUniqueOrThrow({ where: { id: "main" } }),
     prisma.notification.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
   ]);
+  const auditEvents = await prisma.auditEvent.findMany({ orderBy: { createdAt: "desc" }, take: 8 });
 
   const trucksWithMatches = buildTruckMatches(trucks, offers, settings);
   const analytics = summarizeAnalytics(trucksWithMatches, notifications);
@@ -48,6 +68,8 @@ export async function getDashboardData() {
     offers,
     trucks: trucksWithMatches,
     notifications,
+    auditEvents,
+    sourceMode: getCargoSourceMode(),
     analytics,
     topOffers: trucksWithMatches.flatMap((truck) =>
       truck.matches.slice(0, 2).map((match) => ({
@@ -62,10 +84,16 @@ export async function getDashboardData() {
 
 export async function resetDemoData() {
   await prisma.notification.deleteMany();
+  await prisma.auditEvent.deleteMany();
   await prisma.cargoOffer.deleteMany();
   await prisma.truck.deleteMany();
   await prisma.settings.deleteMany();
   await ensureDemoData();
+  await createAuditEvent({
+    action: "reset_demo_data",
+    source: "system",
+    message: "Demo data was reset",
+  });
 }
 
 export async function resyncAtiDemo() {
@@ -76,7 +104,34 @@ export async function resyncAtiDemo() {
     await prisma.cargoOffer.createMany({ data: result.offers });
   }
 
+  await createAuditEvent({
+    action: "sync_offers",
+    source: result.source,
+    message: `Offers synced from ${result.source}`,
+    payload: { offers: result.offers.length },
+  });
+
+  log("info", "Offers synced", { source: result.source, offers: result.offers.length });
+
   return result;
+}
+
+export async function importManualOffers(input: unknown) {
+  const offers = normalizeManualOffers(input);
+
+  await prisma.cargoOffer.deleteMany();
+  if (offers.length > 0) {
+    await prisma.cargoOffer.createMany({ data: offers });
+  }
+
+  await createAuditEvent({
+    action: "manual_import_offers",
+    source: "manual",
+    message: "Offers imported manually",
+    payload: { offers: offers.length },
+  });
+
+  return { imported: offers.length };
 }
 
 export async function updateSettings(input: {
@@ -97,6 +152,17 @@ export async function updateSettings(input: {
   await prisma.settings.update({
     where: { id: "main" },
     data: input,
+  });
+
+  await createAuditEvent({
+    action: "update_settings",
+    source: "panel",
+    message: "Settings updated",
+    payload: {
+      fuelPriceRub: input.fuelPriceRub,
+      targetMarginRub: input.targetMarginRub,
+      telegramChatId: input.telegramChatId,
+    },
   });
 }
 
@@ -121,6 +187,17 @@ export async function queueTelegramDigest() {
   }
 
   await Promise.all(created);
+
+  await createAuditEvent({
+    level: isTelegramConfigured() ? "INFO" : "WARN",
+    action: "telegram_digest",
+    source: "telegram",
+    message: isTelegramConfigured() ? "Telegram digest sent" : "Telegram digest queued without external delivery",
+    payload: {
+      notificationsCreated: created.length,
+      telegramConfigured: isTelegramConfigured(),
+    },
+  });
 
   return {
     notificationsCreated: created.length,

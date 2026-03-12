@@ -23,6 +23,12 @@ enum NotificationStatus {
   SENT
 }
 
+enum AuditLevel {
+  INFO
+  WARN
+  ERROR
+}
+
 model Truck {
   id            String      @id @default(cuid())
   createdAt     DateTime    @default(now())
@@ -81,4 +87,14 @@ model Notification {
   status    NotificationStatus @default(PENDING)
   title     String
   message   String
+}
+
+model AuditEvent {
+  id         String     @id @default(cuid())
+  createdAt  DateTime   @default(now())
+  level      AuditLevel @default(INFO)
+  action     String
+  source     String
+  message    String
+  payloadJson String?
 }

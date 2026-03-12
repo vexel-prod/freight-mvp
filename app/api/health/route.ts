@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { isAtiConfigured, isPanelAuthEnabled, isTelegramConfigured } from "@/lib/env";
+import { getCargoSourceMode, isAtiConfigured, isPanelAuthEnabled, isTelegramConfigured } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -17,6 +17,7 @@ export async function GET() {
         ati: isAtiConfigured() ? "configured" : "demo",
         telegram: isTelegramConfigured() ? "configured" : "disabled",
         panelAuth: isPanelAuthEnabled() ? "enabled" : "disabled",
+        cargoSourceMode: getCargoSourceMode(),
       },
     });
   } catch (error) {
